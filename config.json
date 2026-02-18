@@ -1,0 +1,10 @@
+{
+    "base_url": "https://atelier801.com",
+    "db_path": "forum_data.db",
+    "delay": 1.0,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "max_retries": 5,
+    "timeout": 30,
+    "main_section_ids": [5, 6, 7, 8, 508574, 841223],
+    "output_dir": "Archives_Atelier801"
+}

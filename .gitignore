@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.db
+*.log
+config.json
+Archives_Atelier801/
+page.html
+cookies.txt
+cookies_en.txt
+cookies_gb.txt
