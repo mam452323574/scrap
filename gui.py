@@ -20,6 +20,14 @@ class TextHandler(logging.Handler):
         def append():
             self.text.configure(state='normal')
             self.text.insert(tk.END, msg + '\n')
+
+            # Rotation: Limit to 1000 lines
+            # '1.0' means first line, 'end-1001l' means end minus 1001 lines
+            # Easier check: get number of lines
+            num_lines = int(self.text.index('end-1c').split('.')[0])
+            if num_lines > 1000:
+                self.text.delete('1.0', '2.0') # Delete first line
+
             self.text.configure(state='disabled')
             # Autoscroll to the bottom
             self.text.yview(tk.END)
@@ -77,9 +85,14 @@ class ScraperUI:
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
         text_handler.setFormatter(formatter)
 
+        # File Handler
+        file_handler = logging.FileHandler("scraper_activity.log", encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
         # Get the root logger and add handler
         logger = logging.getLogger()
         logger.addHandler(text_handler)
+        logger.addHandler(file_handler)
         logger.setLevel(logging.INFO) # Ensure level captures INFO
 
         logging.info("Prêt. En attente du lancement...")

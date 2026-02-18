@@ -59,7 +59,17 @@ class Exporter:
             return
 
         filename = self.sanitize_filename(user) + ".txt"
-        filepath = os.path.join(self.output_dir, filename)
+
+        # Subdirectory logic: First letter
+        first_char = filename[0].upper() if filename else "_"
+        if not first_char.isalnum():
+            first_char = "_"
+
+        user_dir = os.path.join(self.output_dir, first_char)
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
+
+        filepath = os.path.join(user_dir, filename)
 
         try:
             with open(filepath, 'w', encoding='utf-8') as f:

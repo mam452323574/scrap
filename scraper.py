@@ -39,7 +39,11 @@ class Scraper:
             try:
                 response = self.session.get(url, params=params, timeout=self.config['timeout'])
                 if response.status_code == 200:
-                    return BeautifulSoup(response.content, 'html.parser')
+                    try:
+                        return BeautifulSoup(response.content, 'lxml')
+                    except Exception:
+                        # Fallback if lxml fails or isn't installed for some reason
+                        return BeautifulSoup(response.content, 'html.parser')
                 elif response.status_code in [429, 502, 503, 504]:
                     logger.warning(f"Server error {response.status_code} for {url}. Retrying in {backoff}s...")
                     time.sleep(backoff)
