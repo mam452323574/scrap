@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class Scraper:
-    def __init__(self, config_path='config.json'):
+    def __init__(self, config_path='config.json', stop_event=None):
         with open(config_path, 'r') as f:
             self.config = json.load(f)
 
@@ -27,20 +27,36 @@ class Scraper:
             'Referer': f"{self.base_url}/forums",
             'X-Requested-With': 'XMLHttpRequest'
         })
+        self.stop_event = stop_event
+
+    def should_stop(self):
+        return self.stop_event and self.stop_event.is_set()
 
     def get_soup(self, url, params=None):
-        try:
-            response = self.session.get(url, params=params, timeout=self.config['timeout'])
-            if response.status_code == 200:
-                return BeautifulSoup(response.content, 'html.parser')
-            else:
-                logger.error(f"Failed to fetch {url}: Status {response.status_code}")
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching {url}: {e}")
-            return None
-        finally:
-            time.sleep(self.delay)
+        retries = 0
+        backoff = 5
+        while retries <= self.config.get('max_retries', 3):
+            try:
+                response = self.session.get(url, params=params, timeout=self.config['timeout'])
+                if response.status_code == 200:
+                    return BeautifulSoup(response.content, 'html.parser')
+                elif response.status_code in [429, 502, 503, 504]:
+                    logger.warning(f"Server error {response.status_code} for {url}. Retrying in {backoff}s...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    retries += 1
+                else:
+                    logger.error(f"Failed to fetch {url}: Status {response.status_code}")
+                    return None
+            except Exception as e:
+                logger.error(f"Error fetching {url}: {e}")
+                time.sleep(backoff)
+                backoff *= 2
+                retries += 1
+            finally:
+                if retries == 0: # Only sleep the regular delay if success
+                    time.sleep(self.delay)
+        return None
 
     def discover_sections(self):
         """Discovers sub-sections from the main forum IDs."""
@@ -145,18 +161,31 @@ class Scraper:
         # Get topics that need scraping
         # We can fetch them in batches to avoid huge memory usage
         while True:
+            # Replaced limiting 'scraped=0' with scraping logic inside loop to support delta/resume properly?
+            # Actually, for resuming, scraped=0 is fine.
+            # But what if we want to update? We might want to reset scraped=0 for all topics occasionally.
+            # For now, let's stick to scraping unscraped ones.
             topics = self.db.cursor.execute('SELECT id, url, last_scraped_page FROM topics WHERE scraped=0 LIMIT 100').fetchall()
             if not topics:
                 break
 
             logger.info(f"Processing batch of {len(topics)} topics...")
             for topic_id, url, last_page in topics:
+                if self.should_stop():
+                    logger.info("Scraping stopped by user.")
+                    return
+
                 logger.info(f"Crawling topic: {url}")
-                self._crawl_topic_pages(topic_id, url, last_page)
+                if not self._crawl_topic_pages(topic_id, url, last_page):
+                    # If scraping failed entirely, we might want to skip or retry later
+                    pass
 
     def _crawl_topic_pages(self, topic_id, url, start_page):
         page = start_page if start_page > 0 else 1
         total_pages = 1
+
+        if self.should_stop():
+            return False
 
         # First visit to get max pages
         soup = self.get_soup(url, params={'p': page})
@@ -164,7 +193,7 @@ class Scraper:
             logger.error(f"Failed to load topic {url}")
             # Mark as failed (2)
             self.db.update_topic_scraped(topic_id, 0, 1, 2)
-            return
+            return False
 
         pagination_input = soup.find('input', {'name': 'p', 'class': 'input-pagination'})
         if pagination_input:
@@ -174,17 +203,26 @@ class Scraper:
         self.db.update_topic_scraped(topic_id, page, total_pages, 0) # Not fully scraped yet
 
         while page <= total_pages:
+            if self.should_stop():
+                logger.info("Scraping stopped by user (during topic).")
+                return False
+
             if page > 1: # We already have soup for page 1 (or start_page)
                 soup = self.get_soup(url, params={'p': page})
                 if not soup:
                     logger.error(f"Failed to load page {page} of topic {url}")
-                    break
+                    # If we fail mid-way, we stop but record progress
+                    return False
 
             logger.info(f"  Scraping page {page}/{total_pages}...")
 
             # Extract posts
             # Structure: <div id="m..." class="cadre cadre-relief cadre-message ltr ">
             posts_divs = soup.find_all('div', class_='cadre-message')
+            if not posts_divs and page <= total_pages:
+                 # Sometimes empty page if deleted content?
+                 logger.warning(f"  No posts found on page {page}")
+
             for div in posts_divs:
                 try:
                     # Post ID
@@ -230,6 +268,7 @@ class Scraper:
 
         # Mark topic as fully scraped
         self.db.update_topic_scraped(topic_id, total_pages, total_pages, 1)
+        return True
 
 if __name__ == '__main__':
     scraper = Scraper()

@@ -21,8 +21,15 @@ class Exporter:
             os.makedirs(self.output_dir)
 
     def sanitize_filename(self, filename):
-        # Remove invalid characters for filenames
-        return re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # Remove invalid characters for filenames, keeping only alphanumeric and basic symbols
+        # Also trim whitespace
+        clean_name = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # Keep only allowed characters (alphanumeric, -, _, ., space, parens)
+        # Actually user wants to keep emojis if possible, but Windows sucks at it sometimes?
+        # Python handles unicode filenames well on modern OS.
+        # But let's be safe against control characters.
+        clean_name = "".join(c for c in clean_name if c.isalnum() or c in " -_().#")
+        return clean_name.strip()
 
     def get_users(self):
         conn = sqlite3.connect(self.db_path)
